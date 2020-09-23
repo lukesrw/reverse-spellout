@@ -15,6 +15,7 @@ function numberToText($number) {
 function textToNumber($text) {
     $tokens = '/\w+ion|thousand/';
     $lookup = array(
+        // word and corresponding number
         'zero' => 0,
         'one' => 1,
         'two' => 2,
@@ -44,6 +45,7 @@ function textToNumber($text) {
         'seventy' => 70,
         'eighty' => 80,
         'ninety' => 90,
+        // word and corresponding power
         'thousand' => 3,
         'million' => 6,
         'billion' => 9,
@@ -75,21 +77,73 @@ function textToNumber($text) {
         )
     );
 
+    /**
+     * Split $text into an array of tokens, some examples,
+     * "one hundred and twenty three thousand three hundred and twenty one":
+     *     [["thousand"]]
+     *
+     * "one hundred and twenty three million four hundred and fifty four thousand three hundred and twenty one":
+     *     [["million", "thousand"]]
+     */
     preg_match_all($tokens, $text, $word_tokens);
+
+    /**
+     * Split $text into an array without the tokens, some examples,
+     * "one hundred and twenty three thousand three hundred and twenty one":
+     *     ["one hundred and twenty three", "three hundred and twenty one"]
+     *
+     * "one hundred and twenty three million four hundred and fifty four thousand three hundred and twenty one":
+     *     ["one hundred and twenty three", "four hundred and fifty four", "three hundred and twenty one"]
+     */
     $word_segments = preg_split($tokens, $text);
 
     return array_reduce(
         array_map(
             function ($segment, $segment_i) use ($word_tokens, $lookup) {
+                /**
+                 * Split the hundreds from the tens and the ones, some examples:
+                 * "one hundred and twenty three":
+                 *     ["one", "twenty three"]
+                 *
+                 * "three hundred and twenty one":
+                 *     ["three", "twenty one"]
+                 *
+                 * "twenty two":
+                 *     ["twenty two"]
+                 */
                 $segment = explode('hundred', trim($segment));
+
+                /**
+                 * Ensure the array has a hundreds part, some examples,
+                 * ["one", "twenty three"]:
+                 *     ["one", "twenty three"]
+                 *
+                 * ["twenty two"]:
+                 *     ["zero", "twenty two"]
+                 */
                 if (count($segment) == 1) {
-                    array_unshift($segment, '');
+                    array_unshift($segment, 'zero');
                 }
 
+                /**
+                 * Multiply the calculated reduced number with power of the token
+                 * Zero is used to ensure a power of 0 is used at the end of a word
+                 */
                 return array_reduce(
                     array_map(
                         function ($segment_part, $segment_part_i) use ($lookup) {
+                            /**
+                             * Calculate the sum of the hundreds and the tens/ones
+                             * Then multiply them by 1 or 100, based on the segment part index
+                             */
                             return array_reduce(
+                                /**
+                                 * Split remaining segment by a space to isolate specific words
+                                 * Then replace with lookup value to substitude word for number
+                                 *
+                                 * If no lookup is found, we keep the value - as it's likely a number,
+                                 * For example if the function input was "3 million", this would work
+                                 */
                                 array_map(
                                     function ($segment_part_word) use ($lookup) {
                                         return $lookup[$segment_part_word] ?? $segment_part_word;
@@ -97,7 +151,7 @@ function textToNumber($text) {
                                     explode(' ', trim($segment_part))
                                 ),
                                 function ($total, $value) {
-                                    return $total + ($value ?: 0);
+                                    return $total + $value;
                                 }
                             ) * ($segment_part_i ?: 100);
                         },
@@ -105,7 +159,7 @@ function textToNumber($text) {
                         array_keys($segment)
                     ),
                     function ($total, $value) {
-                        return $total + ($value ?: 0);
+                        return $total + $value;
                     }
                 ) * pow(10, $lookup[$word_tokens[0][$segment_i] ?? 'zero']);
             },
