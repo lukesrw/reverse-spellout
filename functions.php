@@ -1,19 +1,112 @@
 <?php
-function numberToText($number) {
-    $NumberFormatter = new \NumberFormatter('en', \NumberFormatter::SPELLOUT);
+$numberToText_and_textToNumber_tokens = '/(\w+ion|thousand)/';
+$numberToText_default_options = array(
+    'locale' => 'en',
+    'insert_ands' => 'many',
+    'insert_commas' => true,
+    'remove_hyphens' => false
+);
 
-    return strtr(
+/**
+ * Format a number "100" into text "one hundred"
+ *
+ * @param integer|double $number to format into text
+ * @param array $options to format number with
+ *
+ * @return string Formatted number as text
+ */
+function numberToText($number, $options = null) {
+    global $numberToText_default_options;
+    global $numberToText_and_textToNumber_tokens;
+
+    $options = array_merge(
+        $numberToText_default_options,
+        is_array($options) ? $options : $numberToText_default_options
+    );
+
+    /**
+     * Format the input number, using the given locale
+     */
+    $NumberFormatter = new \NumberFormatter(
+        $options['locale'],
+        \NumberFormatter::SPELLOUT
+    );
+    $text = strtr(
         $NumberFormatter->format($number),
         array(
-            '-' => ' ',
-            'hundred ' => 'hundred and ',
             ',' => ''
         )
     );
+
+    /**
+     * Insert one or many 'and' words into the number text
+     */
+    switch ($options['insert_ands'] ?? $numberToText_default_options['insert_ands']) {
+        case 'many':
+            $text = strtr(
+                $text,
+                array(
+                    'hundred ' => 'hundred and '
+                )
+            );
+        break;
+
+        case 'one':
+            if (strpos($text, ' hundred ') !== false) {
+                $text = explode(' hundred ', $text);
+                $text[count($text) - 1] = 'and ' . $text[count($text) - 1];
+                $text = implode(' hundred ', $text);
+            }
+        break;
+    }
+
+    /**
+     * Insert commas into the number text
+     */
+    if ($options['insert_commas'] ?? $numberToText_default_options['insert_commas']) {
+        $text = preg_replace(
+            $numberToText_and_textToNumber_tokens,
+            '$1,',
+            $text
+        );
+    }
+
+    /**
+     * Remove hyphens from the produced output
+     */
+    if ($options['remove_hyphens'] ?? $numberToText_default_options['remove_hyphens']) {
+        $text = strtr(
+            $text,
+            array(
+                '-' => ' '
+            )
+        );
+    }
+
+    /**
+     * Remove trailing comma, if needed
+     */
+    if (substr($text, -1) == ',') {
+        $text = substr(
+            $text,
+            0,
+            strlen($text) - 1
+        );
+    }
+
+    return $text;
 }
 
+/**
+ * Format text "one hundred" into a number "100"
+ *
+ * @param string $text to format into number
+ *
+ * @return integer|double Formatted text as number
+ */
 function textToNumber($text) {
-    $tokens = '/\w+ion|thousand/';
+    global $numberToText_and_textToNumber_tokens;
+
     $lookup = array(
         // word and corresponding number
         'zero' => 0,
@@ -73,7 +166,8 @@ function textToNumber($text) {
     $text = strtr(
         strtolower($text),
         array(
-            'hundred and ' => 'hundred '
+            'hundred and ' => 'hundred ',
+            ',' => ''
         )
     );
 
@@ -85,7 +179,7 @@ function textToNumber($text) {
      * "one hundred and twenty three million four hundred and fifty four thousand three hundred and twenty one":
      *     [["million", "thousand"]]
      */
-    preg_match_all($tokens, $text, $word_tokens);
+    preg_match_all($numberToText_and_textToNumber_tokens, $text, $word_tokens);
 
     /**
      * Split $text into an array without the tokens, some examples,
@@ -95,7 +189,7 @@ function textToNumber($text) {
      * "one hundred and twenty three million four hundred and fifty four thousand three hundred and twenty one":
      *     ["one hundred and twenty three", "four hundred and fifty four", "three hundred and twenty one"]
      */
-    $word_segments = preg_split($tokens, $text);
+    $word_segments = preg_split($numberToText_and_textToNumber_tokens, $text);
 
     return array_reduce(
         array_map(
@@ -111,7 +205,10 @@ function textToNumber($text) {
                  * "twenty two":
                  *     ["twenty two"]
                  */
-                $segment = explode('hundred', trim($segment));
+                $segment = explode(
+                    'hundred',
+                    trim($segment)
+                );
 
                 /**
                  * Ensure the array has a hundreds part, some examples,
@@ -148,10 +245,13 @@ function textToNumber($text) {
                                     function ($segment_part_word) use ($lookup) {
                                         return $lookup[$segment_part_word] ?? $segment_part_word;
                                     },
-                                    explode(' ', trim($segment_part))
+                                    preg_split(
+                                        '/ |-/',
+                                        trim($segment_part)
+                                    )
                                 ),
                                 function ($total, $value) {
-                                    return $total + $value;
+                                    return $total + ($value ?: 0);
                                 }
                             ) * ($segment_part_i ?: 100);
                         },
