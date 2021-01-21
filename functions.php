@@ -251,7 +251,16 @@ function textToNumber($text) {
                                     )
                                 ),
                                 function ($total, $value) {
-                                    return $total + ($value ?: 0);
+                                    $value = $value ?: 0;
+
+                                    if (! is_numeric($value)) {
+                                        throw new \Exception(sprintf(
+                                            'Invalid Reduce, "%1$s"',
+                                            $value
+                                        ));
+                                    }
+
+                                    return $total + $value;
                                 }
                             ) * ($segment_part_i ?: 100);
                         },
